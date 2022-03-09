@@ -21,6 +21,7 @@ my $np = Monitoring::Plugin->new(
     . "[ -d|--divisor <divisor> ] "
     . "[ -m|--metadata <content> ] "
     . "[ -T|--contenttype <content-type> ] "
+    . "[ -r|--request <request-type> ] "
     . "[ --ignoressl ] "
     . "[ -h|--help ] ",
     version => '1.0',
@@ -78,6 +79,11 @@ $np->add_arg(
 );
 
 $np->add_arg(
+    spec => 'request|r=s',
+    help => '-r, --request string of the desired request type. Supports get & post.',
+);
+
+$np->add_arg(
     spec => 'perfvars|p=s',
     help => "-p, --perfvars eg. '* or {shares}->{dead},{shares}->{live}'\n   "
     . "CSV list of fields from JSON response to include in perfdata "
@@ -93,6 +99,12 @@ $np->add_arg(
     spec => 'headers|H=s',
     help => "-H, --headers eg. '* or {status_message}'\n   "
         . "CSV list of custom headers to include in the json. Syntax: key1:value1#key2:value2..."
+);
+
+$np->add_arg(
+    spec => 'body|b=s',
+    help => "-b, --body eg. '* or {status_message}'\n   "
+        . "string of the body to include."
 );
 
 $np->add_arg(
@@ -139,7 +151,6 @@ my $response;
 #my %headers = ('x-Key' => 'x-Value');
 #$headers{'xkeyx'} = 'xtokenx';
 my %headers;
-
 if ($np->opts->headers) {
     foreach my $key (split('#', $np->opts->headers)) {
         my @header = split(':', $key);
@@ -147,13 +158,24 @@ if ($np->opts->headers) {
     }
 }
 
-if ($np->opts->metadata) {
-    $response = $ua->request(GET $np->opts->url, 'Content-type' => 'application/json', 'Content' => $np->opts->metadata, %headers);
-} else {
-    $response = $ua->request(GET $np->opts->url, %headers);
+if ($np->opts->request eq 'post') {
+    my $json = '';
+    if ($np->opts->body) {
+        $json = $np->opts->body;
+    }
+
+    my $req = HTTP::Request->new( 'POST', $np->opts->url);
+    $req->header( %headers );
+    $req->content( $json );
+    $response = $ua->request( $req );
+
+}else {
+    if ($np->opts->metadata) {
+        $response = $ua->request(GET $np->opts->url, 'Content-type' => 'application/json', 'Content' => $np->opts->metadata, %headers);
+    } else {
+        $response = $ua->request(GET $np->opts->url, %headers);
+    }
 }
-
-
 
 if ($response->is_success) {
     if (!($response->header("content-type") =~ $np->opts->contenttype)) {
@@ -165,8 +187,8 @@ if ($response->is_success) {
 
 ## Parse JSON
 my $json_response = decode_json($response->content);
+print $response->content;
 if ($np->opts->verbose) { (print Dumper ($json_response))};
-
 my @attributes = split(',', $np->opts->attributes);
 my @warning = split(',', $np->opts->warning);
 my @critical = split(',', $np->opts->critical);
@@ -181,8 +203,9 @@ my $resultTmp;
 foreach my $attribute (sort keys %attributes){
     my $check_value;
     my $check_value_str = '$check_value = $json_response->'.$attribute;
-
-    if ($np->opts->verbose) { (print Dumper ($check_value_str))};
+    if ($np->opts->verbose) {
+        (print Dumper ($check_value_str));
+    };
     eval $check_value_str;
 
     if (!defined $check_value) {
