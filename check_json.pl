@@ -17,6 +17,7 @@ my $np = Monitoring::Plugin->new(
     . "[ -p|--perfvars <fields> ] "
     . "[ -o|--outputvars <fields> ] "
     . "[ -H|--headers <fields> ] "
+    . "[ -b|--body <string> ] "
     . "[ -t|--timeout <timeout> ] "
     . "[ -d|--divisor <divisor> ] "
     . "[ -m|--metadata <content> ] "
@@ -187,7 +188,6 @@ if ($response->is_success) {
 
 ## Parse JSON
 my $json_response = decode_json($response->content);
-print $response->content;
 if ($np->opts->verbose) { (print Dumper ($json_response))};
 my @attributes = split(',', $np->opts->attributes);
 my @warning = split(',', $np->opts->warning);
