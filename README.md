@@ -10,12 +10,12 @@ Performance data is also enhanced to extract performance data compliant to Nagio
 Comparing with regular expression is supported.
 Expected values for OK and WARNING status.
 
-Custom headers can be added.
-Syntax for -H: key1:value1#key2:value2#key3:value3...
+Custom headers and body can be added. Chose a requesttype with -r.
+Example for -H: "key1:value1#key2:value2#key3:value3..."
 
 Usage: 
 ```
-check_json -u|--url <URL> -a|--attribute <attribute> [ -c|--critical <threshold> ] [ -w|--warning <threshold> ] [ -p|--perfvars <fields> ] [ -o|--outputvars <fields> ] [ -e|--expect <value> ] [ -W|--warningstr <value> ] [ -t|--timeout <timeout> ] [ -d|--divisor <divisor> ] [ -H|--headers <fields> ][ -T|--contenttype <content-type> ] [ --ignoressl ] [ -h|--help ]
+check_json -u|--url <URL> -a|--attribute <attribute> [ -c|--critical <threshold> ] [ -w|--warning <threshold> ] [ -p|--perfvars <fields> ] [ -o|--outputvars <fields> ] [ -e|--expect <value> ] [ -W|--warningstr <value> ] [ -t|--timeout <timeout> ] [ -d|--divisor <divisor> ] [ -H|--headers <fields> ] [ -b|--body <string> ] [ -r|--request <request-type> ] [ -T|--contenttype <content-type> ] [ --ignoressl ] [ -h|--help ]
 ```
 
 Example: 
