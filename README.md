@@ -1,4 +1,3 @@
-This fork is currently unmaintained. Please use one of the other forks for a better experience (e.g. https://github.com/asymworks/check_json)
 
 check_json
 ==========
