@@ -11,33 +11,33 @@ use Data::Dumper;
 
 my $np = Monitoring::Plugin->new(
     usage => "Usage: %s -u|--url <http://user:pass\@host:port/url> -a|--attributes <attributes> "
-    . "[ -c|--critical <thresholds> ] [ -w|--warning <thresholds> ] "
-    . "[ -e|--expect <value> ] "
-    . "[ -W|--warningstr <value> ] "
-    . "[ -p|--perfvars <fields> ] "
-    . "[ -o|--outputvars <fields> ] "
-    . "[ -H|--headers <fields> ] "
-    . "[ -b|--body <string> ] "
-    . "[ -t|--timeout <timeout> ] "
-    . "[ -d|--divisor <divisor> ] "
-    . "[ -m|--metadata <content> ] "
-    . "[ -T|--contenttype <content-type> ] "
-    . "[ -r|--request <request-type> ] "
-    . "[ --ignoressl ] "
-    . "[ -h|--help ] ",
+        . "[ -c|--critical <thresholds> ] [ -w|--warning <thresholds> ] "
+        . "[ -e|--expect <value> ] "
+        . "[ -W|--warningstr <value> ] "
+        . "[ -p|--perfvars <fields> ] "
+        . "[ -o|--outputvars <fields> ] "
+        . "[ -H|--headers <fields> ] "
+        . "[ -b|--body <string> ] "
+        . "[ -t|--timeout <timeout> ] "
+        . "[ -d|--divisor <divisor> ] "
+        . "[ -m|--metadata <content> ] "
+        . "[ -T|--contenttype <content-type> ] "
+        . "[ -r|--request <request-type> ] "
+        . "[ --ignoressl ] "
+        . "[ -h|--help ] ",
     version => '1.0',
     blurb   => 'Nagios plugin to check JSON attributes via http(s)',
     extra   => "\nExample: \n"
-    . "check_json.pl --url http://192.168.5.10:9332/local_stats --attributes '{shares}->{dead}' "
-    . "--warning :5 --critical :10 --perfvars '{shares}->{dead},{shares}->{live}' "
-    . "--outputvars '{status_message}'",
+        . "check_json.pl --url http://192.168.5.10:9332/local_stats --attributes '{shares}->{dead}' "
+        . "--warning :5 --critical :10 --perfvars '{shares}->{dead},{shares}->{live}' "
+        . "--outputvars '{status_message}'",
     url     => 'https://github.com/c-kr/check_json',
     plugin  => 'check_json',
     timeout => 15,
     shortname => "Check JSON status API",
 );
 
- # add valid command line options and build them into your usage/help documentation.
+# add valid command line options and build them into your usage/help documentation.
 $np->add_arg(
     spec => 'url|u=s',
     help => '-u, --url http://user:pass@192.168.5.10:9332/local_stats',
@@ -58,15 +58,15 @@ $np->add_arg(
 $np->add_arg(
     spec => 'warning|w=s',
     help => '-w, --warning INTEGER:INTEGER . See '
-    . 'http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT '
-    . 'for the threshold format. ',
+        . 'http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT '
+        . 'for the threshold format. ',
 );
 
 $np->add_arg(
     spec => 'critical|c=s',
     help => '-c, --critical INTEGER:INTEGER . See '
-    . 'http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT '
-    . 'for the threshold format. ',
+        . 'http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT '
+        . 'for the threshold format. ',
 );
 
 $np->add_arg(
@@ -87,13 +87,13 @@ $np->add_arg(
 $np->add_arg(
     spec => 'perfvars|p=s',
     help => "-p, --perfvars eg. '* or {shares}->{dead},{shares}->{live}'\n   "
-    . "CSV list of fields from JSON response to include in perfdata "
+        . "CSV list of fields from JSON response to include in perfdata "
 );
 
 $np->add_arg(
     spec => 'outputvars|o=s',
     help => "-o, --outputvars eg. '* or {status_message}'\n   "
-    . "CSV list of fields output in status message, same syntax as perfvars"
+        . "CSV list of fields output in status message, same syntax as perfvars"
 );
 
 $np->add_arg(
@@ -111,14 +111,14 @@ $np->add_arg(
 $np->add_arg(
     spec => 'metadata|m=s',
     help => "-m|--metadata \'{\"name\":\"value\"}\'\n   "
-    . "RESTful request metadata in JSON format"
+        . "RESTful request metadata in JSON format"
 );
 
 $np->add_arg(
     spec => 'contenttype|T=s',
     default => 'application/json',
     help => "-T, --contenttype application/json \n   "
-    . "Content-type accepted if different from application/json ",
+        . "Content-type accepted if different from application/json ",
 );
 
 $np->add_arg(
@@ -193,21 +193,44 @@ my @attributes = split(',', $np->opts->attributes);
 my @warning = split(',', $np->opts->warning);
 my @critical = split(',', $np->opts->critical);
 my @divisor = $np->opts->divisor ? split(',',$np->opts->divisor) : () ;
-my %attributes = map { $attributes[$_] => { warning => $warning[$_] , critical => $critical[$_], divisor => ($divisor[$_] or 0) } } 0..$#attributes;
-
-my %check_value;
-my $check_value;
 my $result = -1;
 my $resultTmp;
+#Resolve [*] in attributes
+  if($np->opts->attributes =~ '\[\*\]'){
+      print "string found!\n";
+      while (my ($i, $elem) = each @attributes) {
+          if ($elem =~ '\[\*\]') {
+              my $index = index($elem, "[*]");
+              if ($index > 0) {
+                  $index = $index - 2;
+              }
+              my $attr_sub = substr($elem, 0, $index);
+              print "ELEMENT: $elem\n";
+              print "strpos of [*]: $index Path: $attr_sub attributeIndex: $i\n";
+              my @check_value_array = @{check_value($attr_sub, $json_response)};
+              print "Resolve array of length ", scalar @check_value_array, "\n";
+              splice(@attributes, $i, 1);
+
+              #}
+              my $count = 0;
+              #$attributes[$i] = $attributes[$i] =~ s/\[\*\]/$attr_sub\[$i\]/r;
+              while (my ($array_index, $array_item) = each @check_value_array) {
+                  #print Dumper(@attributes) . "\n";
+                  my $elem_edit = $elem =~ s/\[\*\]/$attr_sub\[$count\]/r;
+                  splice(@attributes, $count+$i, 0, "$elem_edit");
+                  #print Dumper($attributes[$count]) . "\n";
+                  $count++;
+              }
+              print Dumper(@attributes);
+          }
+      }
+
+  }
+my %attributes = map { $attributes[$_] => { warning => $warning[$_] , critical => $critical[$_], divisor => ($divisor[$_] or 0) } } 0..$#attributes;
 
 foreach my $attribute (sort keys %attributes){
     my $check_value;
-    my $check_value_str = '$check_value = $json_response->'.$attribute;
-    if ($np->opts->verbose) {
-        (print Dumper ($check_value_str));
-    };
-    eval $check_value_str;
-
+    $check_value = check_value($attribute, $json_response);
     if (!defined $check_value) {
         $np->nagios_exit(UNKNOWN, "No value received");
     }
@@ -219,9 +242,9 @@ foreach my $attribute (sort keys %attributes){
     $cmpv2 = $np->opts->warningstr if (defined( $np->opts->warningstr ) );
 
     if ( $cmpv1 eq '.*' ) {
-      if ($attributes{$attribute}{'divisor'}) {
-        $check_value = $check_value/$attributes{$attribute}{'divisor'};
-      }
+        if ($attributes{$attribute}{'divisor'}) {
+            $check_value = $check_value/$attributes{$attribute}{'divisor'};
+        }
     }
 
     # GHI GH-Informatik, changed fixed string compare to regex
@@ -240,40 +263,40 @@ foreach my $attribute (sort keys %attributes){
     # GHI GH-Informatik, no numeric check if regex <> .*
     if ( $cmpv1 eq '.*' ) {
 
-    if ( $check_value eq "true" or $check_value eq "false" ) {
-       if ( $check_value eq "true") {
-          $resultTmp = 0;
-          if ($attributes{$attribute}{'critical'} eq 1 or $attributes{$attribute}{'critical'} eq "true") {
-             $resultTmp = 2;
-          }
-          else
-          {
-             if ($attributes{$attribute}{'warning'} eq 1 or $attributes{$attribute}{'warning'} eq "true") {
-                $resultTmp = 1;
-             }
-          }
-       }
-       if ( $check_value eq "false") {
-          $resultTmp = 0;
-          if ($attributes{$attribute}{'critical'} eq 0 or $attributes{$attribute}{'critical'} eq "false") {
-             $resultTmp = 2;
-           }
-           else
-           {
-              if ($attributes{$attribute}{'warning'} eq 0 or $attributes{$attribute}{'warning'} eq "false") {
-                 $resultTmp = 1;
-              }
-           }
-       }
-    }
-    else
-    {
-       $resultTmp = $np->check_threshold(
-           check => $check_value,
-           warning => $attributes{$attribute}{'warning'},
-           critical => $attributes{$attribute}{'critical'}
-       );
-     }
+        if ( $check_value eq "true" or $check_value eq "false" ) {
+            if ( $check_value eq "true") {
+                $resultTmp = 0;
+                if ($attributes{$attribute}{'critical'} eq 1 or $attributes{$attribute}{'critical'} eq "true") {
+                    $resultTmp = 2;
+                }
+                else
+                {
+                    if ($attributes{$attribute}{'warning'} eq 1 or $attributes{$attribute}{'warning'} eq "true") {
+                        $resultTmp = 1;
+                    }
+                }
+            }
+            if ( $check_value eq "false") {
+                $resultTmp = 0;
+                if ($attributes{$attribute}{'critical'} eq 0 or $attributes{$attribute}{'critical'} eq "false") {
+                    $resultTmp = 2;
+                }
+                else
+                {
+                    if ($attributes{$attribute}{'warning'} eq 0 or $attributes{$attribute}{'warning'} eq "false") {
+                        $resultTmp = 1;
+                    }
+                }
+            }
+        }
+        else
+        {
+            $resultTmp = $np->check_threshold(
+                check => $check_value,
+                warning => $attributes{$attribute}{'warning'},
+                critical => $attributes{$attribute}{'critical'}
+            );
+        }
     }
     $result = $resultTmp if $result < $resultTmp;
 
@@ -330,3 +353,21 @@ $np->nagios_exit(
     return_code => $result,
     message     => join(', ', @statusmsg),
 );
+
+sub check_value{
+    print "starting subroutine\n";
+    my $check_value;
+    my ($attribute, $json_response) = @_ ;
+    my $check_value_str;
+    if(length $attribute ==0){
+        $check_value = $json_response;
+    }else{
+        $check_value_str = '$check_value = $json_response->'.$attribute;
+        print "Run Eval: $check_value_str\n";
+        if ($np->opts->verbose) {
+            (print Dumper ($check_value_str));
+        };
+        eval $check_value_str;
+    }
+    return $check_value;
+}
