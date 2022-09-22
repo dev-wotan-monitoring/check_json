@@ -253,7 +253,7 @@ if ($np->opts->attributes =~ '\[\*\]') {
                 #print Dumper(@attributes) . "\n";
                 my $elem_edit = $attribute_str =~ s/\[\*\]/$attr_sub\[$count\]/r;
                 my $check_value = json_node($elem_edit, $json_response);
-                if ($check_value) {
+                if (defined($check_value) ){
                     splice(@attributes, $count + $attr_i, 0, "$elem_edit");
 
                     if (@json_label_node_array) {
