@@ -7,6 +7,8 @@ use HTTP::Request::Common;
 use LWP::UserAgent;
 use JSON;
 use Monitoring::Plugin;
+use Monitoring::Plugin::Functions qw(%STATUS_TEXT);
+
 use Data::Dumper;
 
 my $np = Monitoring::Plugin->new(
@@ -23,6 +25,7 @@ my $np = Monitoring::Plugin->new(
         . "[ -m|--metadata <content> ] "
         . "[ -T|--contenttype <content-type> ] "
         . "[ -r|--request <request-type> ] "
+        . "[ -l|--labels <labels> ] "
         . "[ --ignoressl ] "
         . "[ -h|--help ] ",
     version => '1.0',
@@ -126,6 +129,11 @@ $np->add_arg(
     help => "--ignoressl\n   Ignore bad ssl certificates",
 );
 
+$np->add_arg(
+    spec => 'labels|l=s',
+    help => "--labels\n   Put the same number as attributes in the same syntax as attributes to display  ",
+);
+
 ## Parse @ARGV and process standard arguments (e.g. usage, help, version)
 $np->getopts;
 if ($np->opts->verbose) { (print Dumper ($np))};
@@ -190,47 +198,81 @@ if ($response->is_success) {
 my $json_response = decode_json($response->content);
 if ($np->opts->verbose) { (print Dumper ($json_response))};
 my @attributes = split(',', $np->opts->attributes);
+my @labels = split(',', $np->opts->labels);
 my @warning = split(',', $np->opts->warning);
 my @critical = split(',', $np->opts->critical);
+my $default_warning = exists($warning[0]) ? $warning[0] : undef;
+my $default_critical = exists($critical[0]) ? $critical[0] : undef;
+
 my @divisor = $np->opts->divisor ? split(',',$np->opts->divisor) : () ;
 my $result = -1;
 my $resultTmp;
+
+if (scalar @labels > 0 && scalar @labels != scalar @attributes){
+     $np->nagios_exit(UNKNOWN, "--labels and --attributes have to have the same length");
+}
 #Resolve [*] in attributes
-  if($np->opts->attributes =~ '\[\*\]'){
-      print "string found!\n";
-      while (my ($i, $elem) = each @attributes) {
-          if ($elem =~ '\[\*\]') {
-              my $index = index($elem, "[*]");
-              if ($index > 0) {
-                  $index = $index - 2;
-              }
-              my $attr_sub = substr($elem, 0, $index);
-              print "ELEMENT: $elem\n";
-              print "strpos of [*]: $index Path: $attr_sub attributeIndex: $i\n";
-              my @check_value_array = @{check_value($attr_sub, $json_response)};
-              print "Resolve array of length ", scalar @check_value_array, "\n";
-              splice(@attributes, $i, 1);
+if ($np->opts->attributes =~ '\[\*\]') {
+    if ($np->opts->verbose) {print " Found wildcard in attributes!\n"};
+    while (my ($attr_i, $attribute_str) = each @attributes) {
+        my $label_str = exists($labels[$attr_i]) ? @labels[$attr_i] : undef ;
 
-              #}
-              my $count = 0;
-              #$attributes[$i] = $attributes[$i] =~ s/\[\*\]/$attr_sub\[$i\]/r;
-              while (my ($array_index, $array_item) = each @check_value_array) {
-                  #print Dumper(@attributes) . "\n";
-                  my $elem_edit = $elem =~ s/\[\*\]/$attr_sub\[$count\]/r;
-                  splice(@attributes, $count+$i, 0, "$elem_edit");
-                  #print Dumper($attributes[$count]) . "\n";
-                  $count++;
-              }
-              print Dumper(@attributes);
-          }
-      }
+        if ($attribute_str =~ '\[\*\]') {
 
-  }
-my %attributes = map { $attributes[$_] => { warning => $warning[$_] , critical => $critical[$_], divisor => ($divisor[$_] or 0) } } 0..$#attributes;
+            if ($label_str && $label_str !~ '\[\*\]') {
+                $np->nagios_exit(UNKNOWN, "You have to use wildcards for labeling " . $attribute_str);
+            }
+            my $wildcard_pos = index($attribute_str, "[*]");
+            if ($label_str && $label_str !~ '\[\*\]') {
+                $np->nagios_exit(UNKNOWN, "You have to use wildcards for labeling " . $attribute_str);
+            }
+            if ($label_str && $wildcard_pos != index($label_str, "[*]")) {
+                $np->nagios_exit(UNKNOWN, "Wildcard position for labeling must be the same as for attributes in " . $attribute_str);
+            }
 
-foreach my $attribute (sort keys %attributes){
+            if ($wildcard_pos > 0) {
+                $wildcard_pos = $wildcard_pos - 2;
+            }
+            my $attr_sub = substr($attribute_str, 0, $wildcard_pos);
+            my $label_sub = substr($label_str, 0, $wildcard_pos);
+            if ($np->opts->verbose) {print "strpos of [*] in $attr_sub is $wildcard_pos\n"};
+
+            my @json_node_array = @{json_node($attr_sub, $json_response)};
+            my @json_label_node_array;
+            if ($label_str) {
+                @json_label_node_array = @{json_node($label_sub, $json_response)};
+            }
+            if ($np->opts->verbose) {print "Resolve array of length ", scalar @json_node_array};
+            splice(@attributes, $attr_i, 1);
+            if (@json_label_node_array) {
+                splice(@labels, $attr_i, 1);
+            }
+            my $count = 0;
+
+            while (my ($array_index, $array_item) = each @json_node_array) {
+                #print Dumper(@attributes) . "\n";
+                my $elem_edit = $attribute_str =~ s/\[\*\]/$attr_sub\[$count\]/r;
+                my $check_value = json_node($elem_edit, $json_response);
+                if ($check_value) {
+                    splice(@attributes, $count + $attr_i, 0, "$elem_edit");
+
+                    if (@json_label_node_array) {
+                        my $label_path = $label_str =~ s/\[\*\]/$label_sub\[$count\]/r;
+                        splice(@labels, $count + $attr_i, 0, $label_path);
+                    }
+                    #print Dumper($attributes[$count]) . "\n";
+                }
+                $count++;
+            }
+        }
+    }
+}
+my %attributes = map { $attributes[$_] => { label => $labels[$_], warning => ($warning[$_] or $default_warning), critical => ($critical[$_] or $default_critical), divisor => ($divisor[$_] or 0), status => "OK" } } 0..$#attributes;
+my @longmsg;
+
+while (my ($attr_i, $attribute) = each @attributes) {
     my $check_value;
-    $check_value = check_value($attribute, $json_response);
+    $check_value = json_node($attribute, $json_response);
     if (!defined $check_value) {
         $np->nagios_exit(UNKNOWN, "No value received");
     }
@@ -253,10 +295,20 @@ foreach my $attribute (sort keys %attributes){
     if (defined($cmpv1 ) && ( ! ( $check_value =~ m/$cmpv1/ ) ) && ( ! ($cmpv1 eq '.*') ) ) {
         if (defined($cmpv2 ) && ( ! ($cmpv2 eq '.*') ) && ( $check_value =~ m/$cmpv2/ ) ) {
             $resultTmp = 1;
-            $np->nagios_exit(WARNING, "Expected WARNING value (" . $cmpv2 . ") found. Actual: " . $check_value);
+            if(!exists($labels[$attr_i])){
+                $labels[$attr_i] = "Matched expected WARNING string(" . $cmpv2 . ")";
+            }
+            # $np->nagios_exit(WARNING, "Expected WARNING value (" . $cmpv2 . ") found. Actual: " . $check_value);
         }else{
             $resultTmp = 2;
-            $np->nagios_exit(CRITICAL, "Expected OK and WARNING value (" . $cmpv1 . " and " . $cmpv2 . ") not found. Actual: " . $check_value);
+            if(!exists($labels[$attr_i])){
+                if(defined($cmpv2)) {
+                    $labels[$attr_i] = "Neither matching OK (" . $cmpv1 . ") nor (" . $cmpv2 . ")";
+                }else{
+                    $labels[$attr_i] = " No match(" . $cmpv1 . ")";
+                }
+            }
+            # $np->nagios_exit(CRITICAL, "Expected OK and WARNING value (" . $cmpv1 . " and " . $cmpv2 . ") not found. Actual: " . $check_value);
         }
 
     }
@@ -301,11 +353,14 @@ foreach my $attribute (sort keys %attributes){
     $result = $resultTmp if $result < $resultTmp;
 
     $attributes{$attribute}{'check_value'}=$check_value;
+    if (exists($labels[$attr_i])) {
+        my $label_node = json_node($labels[$attr_i], $json_response);
+        my $label = $label_node ? $label_node : $labels[$attr_i];
+        push(@longmsg, "[".$STATUS_TEXT{$resultTmp}."] ".$label.": ".$check_value."\n");
+    }
 }
 
 my @statusmsg;
-
-
 # routine to add perfdata from JSON response based on a loop of keys given in perfvals (csv)
 if ($np->opts->perfvars) {
     foreach my $key ($np->opts->perfvars eq '*' ? map { "{$_}"} sort keys %$json_response : split(',', $np->opts->perfvars)) {
@@ -348,26 +403,28 @@ if ($np->opts->outputvars) {
         push(@statusmsg, "$label: $output_value");
     }
 }
+my $outputstr = join(', ', @statusmsg);
+if(scalar @longmsg > 0) {
+    $outputstr = "\n\n".join('', @longmsg);
+}
 
 $np->nagios_exit(
     return_code => $result,
-    message     => join(', ', @statusmsg),
+    message     => $outputstr,
 );
 
-sub check_value{
-    print "starting subroutine\n";
-    my $check_value;
+sub json_node{
+    my $json_node;
     my ($attribute, $json_response) = @_ ;
-    my $check_value_str;
+    my $json_node_str;
     if(length $attribute ==0){
-        $check_value = $json_response;
+        $json_node = $json_response;
     }else{
-        $check_value_str = '$check_value = $json_response->'.$attribute;
-        print "Run Eval: $check_value_str\n";
-        if ($np->opts->verbose) {
-            (print Dumper ($check_value_str));
-        };
-        eval $check_value_str;
+        $json_node_str = '$json_node = $json_response->'.$attribute;
+        # print "Run Eval: $json_node_str\n";
+        eval $json_node_str;
+        if ($np->opts->verbose) { print "Extracted $attribute: $json_node\n" };
     }
-    return $check_value;
+
+    return $json_node;
 }
