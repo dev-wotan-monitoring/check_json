@@ -26,6 +26,7 @@ my $np = Monitoring::Plugin->new(
         . "[ -T|--contenttype <content-type> ] "
         . "[ -r|--request <request-type> ] "
         . "[ -l|--labels <labels> ] "
+        . "[ -L|--labeltoperf <labels> ] "
         . "[ --ignoressl ] "
         . "[ -h|--help ] ",
     version => '1.0',
@@ -134,6 +135,11 @@ $np->add_arg(
     help => "--labels\n   Put the same number as attributes in the same syntax as attributes to display  ",
 );
 
+$np->add_arg(
+    spec => 'labelstoperf|L=s',
+    help => "-L, --labelstoperf\n   Add labels to perfvars 0 or 1  ",
+);
+
 ## Parse @ARGV and process standard arguments (e.g. usage, help, version)
 $np->getopts;
 if ($np->opts->verbose) { (print Dumper ($np))};
@@ -203,13 +209,13 @@ my @warning = split(',', $np->opts->warning);
 my @critical = split(',', $np->opts->critical);
 my $default_warning = exists($warning[0]) ? $warning[0] : undef;
 my $default_critical = exists($critical[0]) ? $critical[0] : undef;
-
+my @statusmsg;
 my @divisor = $np->opts->divisor ? split(',',$np->opts->divisor) : () ;
 my $result = -1;
 my $resultTmp;
 
 if (scalar @labels > 0 && scalar @labels != scalar @attributes){
-     $np->nagios_exit(UNKNOWN, "--labels and --attributes have to have the same length");
+    $np->nagios_exit(UNKNOWN, "--labels and --attributes have to have the same length");
 }
 #Resolve [*] in attributes
 if ($np->opts->attributes =~ '\[\*\]') {
@@ -343,6 +349,21 @@ while (my ($attr_i, $attribute) = each @attributes) {
         }
         else
         {
+            #
+            if ($np->opts->labelstoperf eq 1){
+                #foreach my $label (@labels){
+                    my $label = json_node($labels[$attr_i], $json_response);
+                    $label =~ s/[^a-zA-Z0-9_-]//g  ;
+                    #my $perf_value = $json_response->{$label};
+                    #push(@statusmsg, "$label: $perf_value");
+                    $np->add_perfdata(
+                        label => lc $label,
+                        value => $check_value,,
+                          threshold => $np->set_thresholds( warning => $attributes{$attribute}{'warning'}, critical => $attributes{$attribute}{'critical'}),
+                    );
+                #}
+
+            }
             $resultTmp = $np->check_threshold(
                 check => $check_value,
                 warning => $attributes{$attribute}{'warning'},
@@ -360,8 +381,10 @@ while (my ($attr_i, $attribute) = each @attributes) {
     }
 }
 
-my @statusmsg;
+
 # routine to add perfdata from JSON response based on a loop of keys given in perfvals (csv)
+
+
 if ($np->opts->perfvars) {
     foreach my $key ($np->opts->perfvars eq '*' ? map { "{$_}"} sort keys %$json_response : split(',', $np->opts->perfvars)) {
         # use last element of key as label
@@ -390,6 +413,8 @@ if ($np->opts->perfvars) {
         }
     }
 }
+
+
 
 # output some vars in message
 if ($np->opts->outputvars) {
